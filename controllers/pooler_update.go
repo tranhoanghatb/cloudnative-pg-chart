@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
 	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
@@ -56,7 +57,31 @@ func (r *PoolerReconciler) updateOwnedObjects(
 		return err
 	}
 
-	return createOrPatchPodMonitor(ctx, r.Client, r.DiscoveryClient, pgbouncer.NewPoolerPodMonitorManager(pooler))
+	if err := r.createOrPatchPodMonitor(ctx, pooler); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (r *PoolerReconciler) createOrPatchPodMonitor(
+	ctx context.Context,
+	pooler *apiv1.Pooler,
+) error {
+	podManager := specs.PodMonitorManagerController{
+		Manager:   pooler,
+		Ctx:       ctx,
+		Discovery: r.DiscoveryClient,
+		Client:    r.Client,
+	}
+
+	err := podManager.CreateOrPatchPodMonitor()
+	if err != nil {
+		log.FromContext(ctx).Error(err, "unable to create pod monitor")
+		return err
+	}
+	return nil
 }
 
 // updateDeployment update the deployment or create it when needed
