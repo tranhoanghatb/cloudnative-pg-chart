@@ -18,9 +18,9 @@ package status
 
 import (
 	"context"
-	"reflect"
 
 	"github.com/cloudnative-pg/machinery/pkg/log"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -79,7 +79,7 @@ func RegisterPhaseWithOrigCluster(
 
 	meta.SetStatusCondition(&modifiedCluster.Status.Conditions, condition)
 
-	if !reflect.DeepEqual(origCluster, modifiedCluster) {
+	if !equality.Semantic.DeepEqual(origCluster.Status, modifiedCluster.Status) {
 		modifiedPhase := modifiedCluster.Status.Phase
 		origPhase := origCluster.Status.Phase
 

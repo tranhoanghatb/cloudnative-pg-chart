@@ -14,39 +14,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package conditions
+package status
 
 import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 )
 
-// Update will update a particular condition in cluster status.
-// This function may update the conditions in the passed cluster
-// with the latest ones that were found from the API server.
-func Update(
+// UpdateAndRefresh updates the status of the cluster using the passed
+// transaction function.
+// Important: after successfully updating the status, this
+// function refreshes it into the passed cluster
+func UpdateAndRefresh(
 	ctx context.Context,
 	c client.Client,
 	cluster *apiv1.Cluster,
-	condition ...metav1.Condition,
+	tx func(cluster *apiv1.Cluster),
 ) error {
-	if cluster == nil || len(condition) == 0 {
+	if cluster == nil {
 		return nil
-	}
-
-	tx := func(cluster *apiv1.Cluster) bool {
-		changed := false
-		for _, c := range condition {
-			changed = changed || meta.SetStatusCondition(&cluster.Status.Conditions, c)
-		}
-		return changed
 	}
 
 	var currentCluster apiv1.Cluster
@@ -56,16 +47,9 @@ func Update(
 		}
 
 		updatedCluster := currentCluster.DeepCopy()
-		if changed := tx(updatedCluster); !changed {
-			return nil
-		}
+		tx(updatedCluster)
 
-		// Send the new conditions to the API server preventing
-		// this update to remove the conditions added by other
-		// clients.
-		//
-		// Kubernetes still doesn't support strategic merge
-		// for CRDs (see https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/).
+		// Send the new status to the API server with optimistic locking.
 		if err := c.Status().Patch(
 			ctx,
 			updatedCluster,
@@ -74,12 +58,12 @@ func Update(
 			return err
 		}
 
+		cluster.Status = currentCluster.Status
+
 		return nil
 	}); err != nil {
 		return fmt.Errorf("while updating conditions: %w", err)
 	}
-
-	cluster.Status.Conditions = currentCluster.Status.Conditions
 
 	return nil
 }
